@@ -27,9 +27,9 @@ COLORS = {
 
 LABELS = {
     "repro_cpu_raw": "Repro CPU Raw",
-    "official_cpu_raw": "Official CPU Raw",
+    "official_cpu_raw": "Official CPU Raw (wall)",
     "repro_gpu_raw": "Repro GPU Raw",
-    "official_gpu_raw": "Official GPU Raw",
+    "official_gpu_raw": "Official GPU Raw (wall)",
     "repro_gpu_hash": "Repro GPU Hash",
 }
 
@@ -134,12 +134,23 @@ def write_libsvm(path: Path, arr: np.ndarray):
 
 def read_ids(path: Path, nq: int, k: int):
     out = np.full((nq, k), -1, dtype=np.int32)
+    row = 0
     with path.open() as f:
-        for i, line in enumerate(f):
-            if i >= nq:
+        for line in f:
+            if row >= nq:
                 break
-            vals = [int(x) for x in line.strip().split()[:k]]
-            out[i, : len(vals)] = vals
+            vals = []
+            for tok in line.strip().split():
+                try:
+                    vals.append(int(tok))
+                except ValueError:
+                    break
+                if len(vals) >= k:
+                    break
+            if not vals:
+                continue
+            out[row, : len(vals)] = vals
+            row += 1
     return out
 
 
@@ -299,6 +310,7 @@ def main():
         "--nq", str(args.nq),
         "--k", str(args.k),
         "--pq-size", str(args.pq_size),
+        "--gt-npy", str(prepared / "gt.npy"),
         "--ids-out", str(repro_cpu_ids),
         "--json-out", str(repro_cpu_json),
     ], cwd=ROOT)

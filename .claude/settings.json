@@ -2,7 +2,10 @@
   "permissions": {
     "allow": [
       "Bash(g++ -std=c++17 -O2 -o cpu_test main.cpp)",
-      "Bash(./cpu_test)"
+      "Bash(./cpu_test)",
+      "Bash(gh api *)",
+      "Bash(python3 -c \"import json,sys; [print\\(f['name']\\) for f in json.load\\(sys.stdin\\)]\")",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

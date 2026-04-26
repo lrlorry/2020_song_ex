@@ -11,9 +11,17 @@ constexpr int BLOCK_SIZE      = 32;
 // FIXED_DEGREE: max outgoing edges per node written during build (< BLOCK_SIZE)
 constexpr int FIXED_DEGREE    = 31;
 
-// EF_CONSTRUCTION: how many nearest neighbors to track when inserting a new node;
-//                  larger → better graph quality, slower build
-constexpr int EF_CONSTRUCTION = 15;
+// SEARCH_DEGREE: number of neighbors a newly inserted node keeps initially;
+//                matches official SONG SEARCH_DEGREE = 15. Reverse edges may
+//                later increase a node up to FIXED_DEGREE.
+constexpr int SEARCH_DEGREE   = 15;
+
+// EF_CONSTRUCTION: BFS beam width when inserting node u — how many nearest candidates
+//                  to keep exploring during build-time graph search.
+//                  Controls graph quality: larger → more edges explored per insertion →
+//                  better-connected graph → higher recall at query time, but slower build.
+//                  Matches official SONG CONSTRUCT_SEARCH_BUDGET = 150.
+constexpr int EF_CONSTRUCTION = 150;
 
 // pq_size: exploration width at query time; Candidates and Results heaps are both
 //          capped at this size. Larger → better recall, more work per query.

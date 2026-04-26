@@ -103,7 +103,7 @@ static std::vector<P> graph_search_layer(const Graph& g, idx_t u) {
     std::priority_queue<P> results;                                      // max-heap: best EF_CONSTRUCTION so far
     std::unordered_set<idx_t> visited;
 
-    idx_t  ep      = rand() % u;                                      // ep: random entry point among 0..u-1
+    idx_t  ep      = 0;                                              // official SONG build search starts from node 0
     dist_t ep_dist = l2(q, data + (size_t)ep * g.dim, g.dim);
     candidates.push({ep_dist, ep});
     results.push({ep_dist, ep});
@@ -118,11 +118,9 @@ static std::vector<P> graph_search_layer(const Graph& g, idx_t u) {
             if (v < 0 || v >= u || visited.count(v)) continue; // only look at already-inserted nodes
             visited.insert(v);
             dist_t d = l2(q, data + (size_t)v * g.dim, g.dim);
-            if ((int)results.size() < EF_CONSTRUCTION || d < results.top().first) {
-                candidates.push({d, v});
-                results.push({d, v});
-                if ((int)results.size() > EF_CONSTRUCTION) results.pop();
-            }
+            candidates.push({d, v});
+            results.push({d, v});
+            if ((int)results.size() > EF_CONSTRUCTION) results.pop();
         }
     }
 
@@ -132,12 +130,12 @@ static std::vector<P> graph_search_layer(const Graph& g, idx_t u) {
     return ret;
 }
 
-// Select the nearest FIXED_DEGREE nodes from the candidate list.
+// Select the nearest SEARCH_DEGREE nodes from the candidate list.
 static std::vector<idx_t> graph_select_neighbors(const std::vector<P>& candidates) {
     std::vector<idx_t> result;
-    result.reserve(FIXED_DEGREE);
+    result.reserve(SEARCH_DEGREE);
     for (auto& [d, e] : candidates) {
-        if ((int)result.size() >= FIXED_DEGREE) break;
+        if ((int)result.size() >= SEARCH_DEGREE) break;
         result.push_back(e);
     }
     return result;
@@ -147,7 +145,7 @@ static std::vector<idx_t> graph_select_neighbors(const std::vector<P>& candidate
 // only if u is closer (maintains graph quality in both directions).
 static void graph_add_reverse_edge(Graph& g, idx_t v, idx_t u) {
     const dist_t* data = g.data.data();
-    for (int j = 0; j < BLOCK_SIZE; j++) {
+    for (int j = 0; j < FIXED_DEGREE; j++) {
         if (g.adj[v * BLOCK_SIZE + j] < 0) { g.adj[v * BLOCK_SIZE + j] = u; return; }
     }
     // v is full — evict farthest neighbor if u is closer
@@ -155,7 +153,7 @@ static void graph_add_reverse_edge(Graph& g, idx_t v, idx_t u) {
     dist_t        dist_u = l2(qv, data + (size_t)u * g.dim, g.dim); // distance v→u
     int    fj = 0;                                                    // fj: index of farthest neighbor
     dist_t fd = l2(qv, data + (size_t)g.adj[v * BLOCK_SIZE] * g.dim, g.dim); // fd: its distance
-    for (int j = 1; j < BLOCK_SIZE; j++) {
+    for (int j = 1; j < FIXED_DEGREE; j++) {
         dist_t d = l2(qv, data + (size_t)g.adj[v * BLOCK_SIZE + j] * g.dim, g.dim);
         if (d > fd) { fd = d; fj = j; }
     }

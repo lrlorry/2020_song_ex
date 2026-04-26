@@ -134,7 +134,7 @@ static vector<HP> hkg_search_layer(const HashKernelGraph& g, int u) {
     priority_queue<HP> results;                                     // max-heap: best EF_CONSTRUCTION so far
     unordered_set<int> visited;
 
-    int ep      = rand() % u;                                                // ep: random entry point among 0..u-1
+    int ep      = 0;                                                          // official SONG build search starts from node 0
     int ep_dist = hamming(q, g.hashed.data() + (size_t)ep * HASH_WORDS);
     candidates.push({ep_dist, ep});
     results.push({ep_dist, ep});
@@ -149,11 +149,9 @@ static vector<HP> hkg_search_layer(const HashKernelGraph& g, int u) {
             if (v < 0 || v >= u || visited.count(v)) continue;
             visited.insert(v);
             int d = hamming(q, g.hashed.data() + (size_t)v * HASH_WORDS);
-            if ((int)results.size() < EF_CONSTRUCTION || d < results.top().first) {
-                candidates.push({d, v});
-                results.push({d, v});
-                if ((int)results.size() > EF_CONSTRUCTION) results.pop();
-            }
+            candidates.push({d, v});
+            results.push({d, v});
+            if ((int)results.size() > EF_CONSTRUCTION) results.pop();
         }
     }
 
@@ -165,9 +163,9 @@ static vector<HP> hkg_search_layer(const HashKernelGraph& g, int u) {
 
 static vector<int> hkg_select_neighbors(const vector<HP>& candidates) {
     vector<int> result;
-    result.reserve(FIXED_DEGREE);
+    result.reserve(SEARCH_DEGREE);
     for (auto& [d, e] : candidates) {
-        if ((int)result.size() >= FIXED_DEGREE) break;
+        if ((int)result.size() >= SEARCH_DEGREE) break;
         result.push_back(e);
     }
     return result;
@@ -175,7 +173,7 @@ static vector<int> hkg_select_neighbors(const vector<HP>& candidates) {
 
 // Add reverse edge v→u. If v is full, evict the farthest neighbor (by Hamming) if u is closer.
 static void hkg_add_reverse_edge(HashKernelGraph& g, int v, int u) {
-    for (int j = 0; j < BLOCK_SIZE; j++) {
+    for (int j = 0; j < FIXED_DEGREE; j++) {
         if (g.adj[v * BLOCK_SIZE + j] < 0) { g.adj[v * BLOCK_SIZE + j] = u; return; }
     }
     // v is full — evict farthest neighbor if u is closer
@@ -183,7 +181,7 @@ static void hkg_add_reverse_edge(HashKernelGraph& g, int v, int u) {
     int             dist_u = hamming(qv, g.hashed.data() + (size_t)u * HASH_WORDS); // distance v→u
     int fj = 0;                                                                      // fj: index of farthest neighbor
     int fd = hamming(qv, g.hashed.data() + (size_t)g.adj[v * BLOCK_SIZE] * HASH_WORDS); // fd: its distance
-    for (int j = 1; j < BLOCK_SIZE; j++) {
+    for (int j = 1; j < FIXED_DEGREE; j++) {
         int d = hamming(qv, g.hashed.data() + (size_t)g.adj[v * BLOCK_SIZE + j] * HASH_WORDS);
         if (d > fd) { fd = d; fj = j; }
     }
