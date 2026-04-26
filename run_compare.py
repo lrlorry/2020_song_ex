@@ -22,7 +22,6 @@ COLORS = {
     "official_cpu_raw": "#9C755F",
     "repro_gpu_raw": "#59A14F",
     "official_gpu_raw": "#2F6B2F",
-    "official_cpu_hash": "#F28E2B",
     "repro_gpu_hash": "#E15759",
 }
 
@@ -31,13 +30,32 @@ LABELS = {
     "official_cpu_raw": "Official CPU Raw",
     "repro_gpu_raw": "Repro GPU Raw",
     "official_gpu_raw": "Official GPU Raw",
-    "official_cpu_hash": "Official CPU Hash",
     "repro_gpu_hash": "Repro GPU Hash",
 }
 
 
+def _tail_file(path, n=40):
+    path = Path(path)
+    if not path.exists():
+        return ""
+    try:
+        lines = path.read_text(errors="replace").splitlines()
+        return "\n".join(lines[-n:])
+    except Exception as exc:
+        return f"<failed to read {path}: {exc}>"
+
+
 def run(cmd, cwd=None, stdout_path=None, stderr_path=None, env=None):
     cwd = str(cwd) if cwd else None
+    cmd_str = ' '.join(map(shlex.quote, cmd))
+    loc = cwd or os.getcwd()
+    print(f"[cmd] cwd={loc}", flush=True)
+    print(f"[cmd] run: {cmd_str}", flush=True)
+    if stdout_path:
+        print(f"[cmd] stdout -> {stdout_path}", flush=True)
+    if stderr_path:
+        print(f"[cmd] stderr -> {stderr_path}", flush=True)
+
     stdout_f = open(stdout_path, "w") if stdout_path else subprocess.PIPE
     stderr_f = open(stderr_path, "w") if stderr_path else subprocess.PIPE
     try:
@@ -49,8 +67,22 @@ def run(cmd, cwd=None, stdout_path=None, stderr_path=None, env=None):
             stdout_f.close()
         if stderr_path:
             stderr_f.close()
+
+    print(f"[cmd] done: rc={proc.returncode} time_ms={dt_ms:.1f}", flush=True)
     if proc.returncode != 0:
-        raise RuntimeError(f"command failed ({proc.returncode}): {' '.join(map(shlex.quote, cmd))}")
+        if stdout_path:
+            tail = _tail_file(stdout_path)
+            if tail:
+                print(f"[cmd] stdout tail ({stdout_path}):\n{tail}", flush=True)
+        elif proc.stdout:
+            print(f"[cmd] stdout:\n{proc.stdout}", flush=True)
+        if stderr_path:
+            tail = _tail_file(stderr_path)
+            if tail:
+                print(f"[cmd] stderr tail ({stderr_path}):\n{tail}", flush=True)
+        elif proc.stderr:
+            print(f"[cmd] stderr:\n{proc.stderr}", flush=True)
+        raise RuntimeError(f"command failed ({proc.returncode}): {cmd_str}")
     return dt_ms
 
 
@@ -233,8 +265,7 @@ def main():
     figs = out_dir / "figures"
     raw_cpu_dir = runs / "official_cpu_raw"
     raw_gpu_dir = runs / "official_gpu_raw"
-    hash_cpu_dir = runs / "official_cpu_hash"
-    for d in [prepared, raw_cpu_dir, raw_gpu_dir, hash_cpu_dir, figs]:
+    for d in [prepared, raw_cpu_dir, raw_gpu_dir, figs]:
         d.mkdir(parents=True, exist_ok=True)
 
     base_path = Path(args.base)
@@ -242,7 +273,7 @@ def main():
     if not base_path.exists() or not query_path.exists():
         run(["bash", str(ROOT / "download_sift.sh")], cwd=ROOT)
 
-    print("[1/7] preparing subset and GT...")
+    print("[1/7] preparing subset and GT...", flush=True)
     base = read_fvecs_subset(base_path, args.n)
     query = read_fvecs_subset(query_path, args.nq)
     gt = compute_gt(base, query, args.k)
@@ -254,10 +285,10 @@ def main():
     write_libsvm(base_libsvm, base)
     write_libsvm(query_libsvm, query)
 
-    print("[2/7] building repro benchmarks...")
+    print("[2/7] building repro benchmarks...", flush=True)
     run(["make", "bench_cpu", "bench_gpu"], cwd=ROOT)
 
-    print("[3/7] running repro CPU raw...")
+    print("[3/7] running repro CPU raw...", flush=True)
     repro_cpu_json = out_dir / "repro_cpu_raw.json"
     repro_cpu_ids = out_dir / "repro_cpu_raw.ids"
     run([
@@ -272,7 +303,7 @@ def main():
         "--json-out", str(repro_cpu_json),
     ], cwd=ROOT)
 
-    print("[4/7] running repro GPU raw/hash...")
+    print("[4/7] running repro GPU raw/hash...", flush=True)
     repro_gpu_json = out_dir / "repro_gpu.json"
     repro_gpu_raw_ids = out_dir / "repro_gpu_raw.ids"
     repro_gpu_hash_ids = out_dir / "repro_gpu_hash.ids"
@@ -288,18 +319,14 @@ def main():
         "--json-out", str(repro_gpu_json),
     ], cwd=ROOT)
 
-    print("[5/7] compiling official SONG variants...")
+    print("[5/7] compiling official SONG variants...", flush=True)
     run(["make", "song.cpu"], cwd=official_root)
     run(["bash", str(official_root / "generate_template.sh")], cwd=official_root)
     run(["bash", str(official_root / "fill_parameters.sh"), str(args.pq_size), str(args.dim), "l2"], cwd=official_root)
-    run([
-        "g++", "main.cc", "-o", "song.cpu.hash", "-std=c++11", "-O3", "-march=native", "-D__ENABLE_HASH"
-    ], cwd=official_root)
 
-    print("[6/7] running official SONG variants...")
+    print("[6/7] running official SONG variants...", flush=True)
     official_cpu_raw_ids = out_dir / "official_cpu_raw.ids"
     official_gpu_raw_ids = out_dir / "official_gpu_raw.ids"
-    official_cpu_hash_ids = out_dir / "official_cpu_hash.ids"
 
     official_cpu_raw_build = run([
         str(official_root / "song.cpu"), "build", str(base_libsvm), "0", "0",
@@ -319,16 +346,7 @@ def main():
         str(args.n), str(args.dim), str(args.k), "l2"
     ], cwd=raw_gpu_dir, stdout_path=official_gpu_raw_ids, stderr_path=raw_gpu_dir / "test.stderr.log")
 
-    official_cpu_hash_build = run([
-        str(official_root / "song.cpu.hash"), "build", str(base_libsvm), "0", "0",
-        str(args.n), str(args.dim), "0", "l2"
-    ], cwd=hash_cpu_dir)
-    official_cpu_hash_search = run([
-        str(official_root / "song.cpu.hash"), "test", "0", str(query_libsvm), str(args.pq_size),
-        str(args.n), str(args.dim), str(args.k), "l2"
-    ], cwd=hash_cpu_dir, stdout_path=official_cpu_hash_ids, stderr_path=hash_cpu_dir / "test.stderr.log")
-
-    print("[7/7] evaluating and plotting...")
+    print("[7/7] evaluating and plotting...", flush=True)
     gt_ids = gt.astype(np.int32)
     rows = []
 
@@ -383,16 +401,6 @@ def main():
         "k": args.k,
     })
 
-    official_cpu_hash_arr = read_ids(official_cpu_hash_ids, args.nq, args.k)
-    rows.append({
-        "method": "official_cpu_hash",
-        "build_ms": official_cpu_hash_build,
-        "search_ms": official_cpu_hash_search,
-        "qps": args.nq / (official_cpu_hash_search / 1000.0),
-        "recall": float(recall_at_k(official_cpu_hash_arr, gt_ids, args.k)),
-        "k": args.k,
-    })
-
     rows = sorted(rows, key=lambda r: ["official" in r["method"], "hash" in r["method"], "gpu" in r["method"]])
     write_csv(out_dir / "metrics.csv", rows)
 
@@ -400,7 +408,6 @@ def main():
         "GT is recomputed on the same first-n subset, so recall is apples-to-apples.",
         "Official GPU query timing is measured as process wall time of `song test`, so it includes its in-program load path.",
         "Repro GPU timing comes from dedicated benchmark entrypoints and reports build/search separately.",
-        "Official repo does not expose a public GPU hash main; this pipeline compares its hash path through the official CPU entry compiled with __ENABLE_HASH.",
     ]
     write_summary(out_dir / "report.md", rows, args, notes)
     plot_dashboard(rows, figs / "dashboard.png", figs / "dashboard.pdf", "SONG reproduction vs official code")
@@ -417,10 +424,10 @@ def main():
         },
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2))
-    print("done:")
-    print(f"  metrics : {out_dir / 'metrics.csv'}")
-    print(f"  report  : {out_dir / 'report.md'}")
-    print(f"  figures : {figs}")
+    print("done:", flush=True)
+    print(f"  metrics : {out_dir / 'metrics.csv'}", flush=True)
+    print(f"  report  : {out_dir / 'report.md'}", flush=True)
+    print(f"  figures : {figs}", flush=True)
 
 
 if __name__ == "__main__":
