@@ -780,7 +780,7 @@ def parse_config_snapshot(path: Path):
     for line in path.read_text().splitlines():
         line = line.strip()
         if line.startswith("constexpr int"):
-            lhs, rhs = line.split("=")
+            lhs, rhs = line.split("=", 1)
             name = lhs.split()[-1].strip()
             value = rhs.strip().rstrip(";")
             try:
