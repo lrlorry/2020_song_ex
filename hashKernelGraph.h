@@ -4,10 +4,13 @@
 #include <unordered_set>
 #include <algorithm>
 #include <random>
+#include <chrono>
 #include <cuda_runtime.h>
 #include "config.h"
 #include "bitHash.h"
 #include "gpuHeap.h"
+#include "telemetry.h"
+#include "bloomFilter.h"
 
 using namespace std;
 
@@ -224,46 +227,58 @@ __device__ inline int warp_hamming(
 //
 // Shared memory layout (contiguous, no padding):
 //   uint32_t           sq[HASH_WORDS]     — query bit vector cached from global memory
-//   Candidates<pq_size>                 — BFS exploration min-heap
-//   Results<pq_size>                    — best-so-far max-heap (top = worst = pruning threshold)
+//   Candidates<pq_size>                  — BFS exploration min-heap
+//   Results<pq_size>                     — best-so-far max-heap (top = worst = pruning threshold)
+//   uint64_t           bloom[BF_WORDS]   — Bloom filter for visited tracking (no global vis array)
 //
 // hashed  : bit-hashed dataset on GPU [n x HASH_WORDS]
 // adj     : adjacency list on GPU [n x BLOCK_SIZE]
 // queries : bit-hashed query vectors on GPU [nq x HASH_WORDS]
 // out     : output k-NN node ids [nq x k]
-// vis     : per-query visited flags [nq x n], must be zeroed before kernel launch
 __global__ void hkg_search_kernel(
     const uint32_t* __restrict__ hashed,
     const int*      __restrict__ adj,
     const uint32_t* __restrict__ queries,
     int*            out,
-    bool*           vis,
-    int n, int k, int nq)
+    QueryTrace*     trace_out,
+    int n, int k, int nq, int ef_search)
 {
     const int qid  = blockIdx.x; // qid: query index — one block per query
     if (qid >= nq) return;
     const int lane = threadIdx.x; // lane: thread index within warp (0..31)
 
     extern __shared__ char smem[];
-    uint32_t*              sq         = (uint32_t*)smem;                            // sq: cached query [HASH_WORDS]
-    Candidates<pq_size>* candidates = (Candidates<pq_size>*)(sq + HASH_WORDS);  // candidates: BFS frontier
-    Results<pq_size>*    results    = (Results<pq_size>*)(candidates + 1);       // results: best nodes so far
+    uint32_t*            sq         = (uint32_t*)smem;
+    Candidates<pq_size>* candidates = (Candidates<pq_size>*)(sq + HASH_WORDS);
+    Results<pq_size>*    results    = (Results<pq_size>*)(candidates + 1);
+    uint64_t*            bloom      = (uint64_t*)(results + 1); // bloom: Bloom filter for visited nodes
 
-    bool* visited = vis + (size_t)qid * n; // visited: per-query slice of global vis array [n bools]
+    QueryTrace trace{};
 
-    // Load query bit vector (each lane loads one word if lane < HASH_WORDS)
+    // Load query bit vector; initialize heaps and Bloom filter
     if (lane < HASH_WORDS) sq[lane] = queries[(size_t)qid * HASH_WORDS + lane];
-    if (lane == 0) { candidates->init(); results->init(); }
+    if (lane == 0) {
+        candidates->init(ef_search);
+        results->init(ef_search);
+        for (int w = 0; w < BF_WORDS; w++) bloom[w] = 0ULL;
+    }
     __syncthreads();
 
     // Seed BFS from N_MULTIPROBE evenly-spaced entry points
     for (int p = 0; p < N_MULTIPROBE; p++) {
         int ep = (int)((size_t)p * n / N_MULTIPROBE); // ep: p-th evenly-spaced entry point
         float dp = (float)warp_hamming(sq, hashed + (size_t)ep * HASH_WORDS); // all lanes compute, result valid in lane 0
-        if (lane == 0 && !visited[ep]) {
-            visited[ep] = true;
-            candidates->push(dp, ep);
-            results->try_push(dp, ep);
+        if (lane == 0 && !bf_test(bloom, ep)) {
+            bf_set(bloom, ep);
+            bool frontier_added = candidates->push(dp, ep);
+            bool result_added = results->try_push(dp, ep);
+            trace.seed_count++;
+            trace.visited_nodes++;
+            trace.distance_evals++;
+            trace.frontier_pushes += frontier_added ? 1 : 0;
+            trace.result_updates += result_added ? 1 : 0;
+            trace.peak_frontier = trace.peak_frontier < candidates->size() ? candidates->size() : trace.peak_frontier;
+            trace.peak_results = trace.peak_results < results->size() ? results->size() : trace.peak_results;
         }
         __syncthreads();
     }
@@ -276,6 +291,7 @@ __global__ void hkg_search_kernel(
         cn    = __shfl_sync(0xffffffff, cn,    0);
         c_min = __shfl_sync(0xffffffff, c_min, 0);
         if (cn < 0) break;
+        if (lane == 0) trace.expanded_nodes++;
 
         // Early stop: results full and current node is worse than the worst result
         int   rs_full  = 0;    // rs_full: 1 if results heap is at capacity
@@ -283,25 +299,44 @@ __global__ void hkg_search_kernel(
         if (lane == 0) { rs_full = results->full() ? 1 : 0; rs_worst = rs_full ? results->worst() : 0.0f; }
         rs_full  = __shfl_sync(0xffffffff, rs_full,  0);
         rs_worst = __shfl_sync(0xffffffff, rs_worst, 0);
-        if (rs_full && c_min > rs_worst) break;
+        if (rs_full && c_min > rs_worst) {
+            if (lane == 0) trace.early_stopped = 1;
+            break;
+        }
 
         for (int j = 0; j < BLOCK_SIZE; j++) {
+            if (lane == 0) trace.neighbor_slots_scanned++;
             // Stage 1: lane 0 reads neighbor id and broadcasts to warp
             int nb = -1; // nb: neighbor node id (-1 = empty slot)
             if (lane == 0) nb = adj[cn * BLOCK_SIZE + j];
             nb = __shfl_sync(0xffffffff, nb, 0);
             if (nb < 0) continue;
 
-            int skip = 0; // skip: 1 if nb already visited
-            if (lane == 0) { skip = visited[nb] ? 1 : 0; if (!skip) visited[nb] = true; }
+            int skip = 0; // skip: 1 if nb possibly already visited (Bloom filter test)
+            if (lane == 0) {
+                skip = bf_test(bloom, nb) ? 1 : 0;
+                if (!skip) {
+                    bf_set(bloom, nb);
+                    trace.visited_nodes++;
+                    trace.candidate_nodes++;
+                }
+            }
             skip = __shfl_sync(0xffffffff, skip, 0);
             if (skip) continue;
 
             // Stage 2: all 32 lanes cooperate to compute Hamming(query, nb)
             float nb_d = (float)warp_hamming(sq, hashed + (size_t)nb * HASH_WORDS); // nb_d: Hamming distance query→nb
+            if (lane == 0) trace.distance_evals++;
 
             // Stage 3: lane 0 updates candidates (always) and results (only if it improves)
-            if (lane == 0) { candidates->push(nb_d, nb); results->try_push(nb_d, nb); }
+            if (lane == 0) {
+                bool frontier_added = candidates->push(nb_d, nb);
+                bool result_added = results->try_push(nb_d, nb);
+                trace.frontier_pushes += frontier_added ? 1 : 0;
+                trace.result_updates += result_added ? 1 : 0;
+                trace.peak_frontier = trace.peak_frontier < candidates->size() ? candidates->size() : trace.peak_frontier;
+                trace.peak_results = trace.peak_results < results->size() ? results->size() : trace.peak_results;
+            }
         }
         __syncthreads();
     }
@@ -311,42 +346,90 @@ __global__ void hkg_search_kernel(
         while (results->size() > k) results->pop_worst();
         int cnt = results->drain_best(out + (size_t)qid * k, k); // cnt: number of results written
         for (int i = cnt; i < k; i++) out[(size_t)qid * k + i] = -1; // pad with -1 if fewer than k
+        trace.result_count = cnt;
+        if (trace_out) trace_out[qid] = trace;
     }
 }
 
 // GPU batch search — graph must have been uploaded with g.upload_to_gpu().
-// Queries are processed in batches so visited flags never exceed N_MULTIQUERY * n bytes.
+// Queries are processed in batches of N_MULTIQUERY; each block uses a Bloom filter
+// in shared memory for visited tracking (no global visited array).
 // queries    : bit-hashed row-major [nq x HASH_WORDS]
-// N_MULTIQUERY : queries per kernel launch; controls peak GPU memory for visited flags
+// N_MULTIQUERY : queries per kernel launch (tune down if kernel smem is too large)
 // returns    : flat k-NN ids [nq x k]; timing covers query H2D + kernel + result D2H
 inline vector<int> gpu_search(const HashKernelGraph& g, const uint32_t* queries, int nq, int k,
-                               int N_MULTIQUERY = 512) {
+                              int N_MULTIQUERY = 512, int ef_search = pq_size,
+                              GpuSearchTrace* trace = nullptr) {
+    using clk = std::chrono::high_resolution_clock;
+    auto ms = [](clk::time_point a, clk::time_point b) {
+        return std::chrono::duration<double, std::milli>(b - a).count();
+    };
     const int n = g.num_nodes;
+    if (ef_search < k) ef_search = k;
+    if (ef_search > pq_size) ef_search = pq_size;
 
+    if (trace) {
+        *trace = GpuSearchTrace{};
+        trace->ef_search = ef_search;
+        trace->batch_limit = N_MULTIQUERY;
+        trace->queries.resize(nq);
+    }
+
+    auto t_alloc0 = clk::now();
     uint32_t* d_q;   cudaMalloc(&d_q,   (size_t)N_MULTIQUERY * HASH_WORDS * sizeof(uint32_t)); // d_q: GPU query buffer (one batch)
     int*      d_res; cudaMalloc(&d_res, (size_t)N_MULTIQUERY * k           * sizeof(int));      // d_res: GPU result buffer (one batch)
-    // visited: N_MULTIQUERY * n bytes — batching keeps this from OOM on large n
-    bool*     d_vis; cudaMalloc(&d_vis, (size_t)N_MULTIQUERY * n           * sizeof(bool));     // d_vis: GPU visited flags (one batch)
+    // no d_vis: visited tracking uses a Bloom filter in shared memory
+    QueryTrace* d_trace = nullptr;
+    if (trace) cudaMalloc(&d_trace, (size_t)N_MULTIQUERY * sizeof(QueryTrace));
+    auto t_alloc1 = clk::now();
+    if (trace) trace->alloc_ms = ms(t_alloc0, t_alloc1);
 
-    // smem: shared memory bytes per block = sq + Candidates + Results
+    // smem per block: sq + Candidates + Results + Bloom filter
     size_t smem = sizeof(uint32_t) * HASH_WORDS
                 + sizeof(Candidates<pq_size>)
-                + sizeof(Results<pq_size>);
+                + sizeof(Results<pq_size>)
+                + sizeof(uint64_t) * BF_WORDS;
 
     vector<int> result((size_t)nq * k);
+    auto t_total0 = clk::now();
 
     for (int off = 0; off < nq; off += N_MULTIQUERY) {
         int bs = min(N_MULTIQUERY, nq - off); // bs: actual queries in this batch
+        BatchTiming batch;
+        batch.batch_index = off / N_MULTIQUERY;
+        batch.batch_offset = off;
+        batch.batch_size = bs;
 
+        auto t0 = clk::now();
         cudaMemcpy(d_q, queries + (size_t)off * HASH_WORDS, (size_t)bs * HASH_WORDS * sizeof(uint32_t), cudaMemcpyHostToDevice);
-        cudaMemset(d_vis, 0, (size_t)bs * n * sizeof(bool));
+        auto t1 = clk::now();
 
-        hkg_search_kernel<<<bs, 32, smem>>>(g.d_hashed, g.d_adj, d_q, d_res, d_vis, n, k, bs);
+        hkg_search_kernel<<<bs, 32, smem>>>(g.d_hashed, g.d_adj, d_q, d_res, d_trace, n, k, bs, ef_search);
         cudaDeviceSynchronize();
+        auto t2 = clk::now();
 
         cudaMemcpy(result.data() + (size_t)off * k, d_res, (size_t)bs * k * sizeof(int), cudaMemcpyDeviceToHost);
-    }
+        auto t3 = clk::now();
 
-    cudaFree(d_q); cudaFree(d_res); cudaFree(d_vis);
+        batch.h2d_ms = ms(t0, t1);
+        batch.memset_ms = 0.0; // no memset; Bloom filter is zero-initialized by lane 0 inside the kernel
+        batch.kernel_ms = ms(t1, t2);
+        batch.d2h_ms = ms(t2, t3);
+        if (trace) {
+            trace->h2d_ms += batch.h2d_ms;
+            trace->memset_ms += batch.memset_ms;
+            trace->kernel_ms += batch.kernel_ms;
+            trace->d2h_ms += batch.d2h_ms;
+            trace->batches.push_back(batch);
+            std::vector<QueryTrace> host_trace(bs);
+            cudaMemcpy(host_trace.data(), d_trace, (size_t)bs * sizeof(QueryTrace), cudaMemcpyDeviceToHost);
+            for (int i = 0; i < bs; ++i) trace->queries[off + i] = host_trace[i];
+        }
+    }
+    auto t_total1 = clk::now();
+    if (trace) trace->total_ms = ms(t_total0, t_total1);
+
+    cudaFree(d_q); cudaFree(d_res);
+    if (d_trace) cudaFree(d_trace);
     return result;
 }

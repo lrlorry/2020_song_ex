@@ -10,20 +10,29 @@ struct Candidates {
     float dist[MAX_SIZE];  // distances of queued candidates
     int   id[MAX_SIZE];    // node ids of queued candidates
     int   sz;              // current number of entries
+    int   cap;             // active capacity (<= MAX_SIZE)
 
-    __device__ void init()  { sz = 0; }
+    __device__ void init(int cap_)  {
+        sz = 0;
+        cap = cap_ < 1 ? 1 : (cap_ > MAX_SIZE ? MAX_SIZE : cap_);
+    }
     __device__ bool empty() const { return sz == 0; }
     __device__ int  size()  const { return sz; }
 
     // Push (d, node). If full, evict the farthest entry so the frontier stays bounded.
-    __device__ void push(float d, int node) {
-        if (sz < MAX_SIZE) {
+    __device__ bool push(float d, int node) {
+        if (sz < cap) {
             dist[sz] = d; id[sz] = node; sz++;
-            return;
+            return true;
         }
         int fi = 0;  // fi: index of the farthest current entry
-        for (int i = 1; i < MAX_SIZE; i++) if (dist[i] > dist[fi]) fi = i;
-        if (d < dist[fi]) { dist[fi] = d; id[fi] = node; }
+        for (int i = 1; i < cap; i++) if (dist[i] > dist[fi]) fi = i;
+        if (d < dist[fi]) {
+            dist[fi] = d;
+            id[fi] = node;
+            return true;
+        }
+        return false;
     }
 
     // Pop and return the closest node; write its distance to *out_dist.
@@ -49,10 +58,14 @@ struct Results {
     float dist[MAX_SIZE];  // distances of the best nodes found so far
     int   id[MAX_SIZE];    // node ids of the best nodes found so far
     int   sz;              // current number of entries
+    int   cap;             // active capacity (<= MAX_SIZE)
 
-    __device__ void init()  { sz = 0; }
+    __device__ void init(int cap_)  {
+        sz = 0;
+        cap = cap_ < 1 ? 1 : (cap_ > MAX_SIZE ? MAX_SIZE : cap_);
+    }
     __device__ int  size()  const { return sz; }
-    __device__ bool full()  const { return sz == MAX_SIZE; }
+    __device__ bool full()  const { return sz == cap; }
 
     // Worst (largest) distance — incoming nodes must beat this to be admitted.
     __device__ float worst() const {
@@ -63,12 +76,12 @@ struct Results {
 
     // Insert (d, node) if it improves the result set (better than worst or not yet full).
     __device__ bool try_push(float d, int node) {
-        if (sz < MAX_SIZE) {
+        if (sz < cap) {
             dist[sz] = d; id[sz] = node; sz++;
             return true;
         }
         int wi = 0;  // wi: index of the worst current entry
-        for (int i = 1; i < MAX_SIZE; i++) if (dist[i] > dist[wi]) wi = i;
+        for (int i = 1; i < cap; i++) if (dist[i] > dist[wi]) wi = i;
         if (d < dist[wi]) { dist[wi] = d; id[wi] = node; return true; }
         return false;
     }

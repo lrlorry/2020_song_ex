@@ -5,6 +5,7 @@
 #include <algorithm>
 #include "config.h"
 #include "distance.h"
+#include "telemetry.h"
 
 // CPU NSW proximity graph with three-stage batch search (SONG paper, Algorithm 1).
 struct Graph {
@@ -29,9 +30,13 @@ struct Graph {
     // query     : query vector, length = dim
     // k         : number of neighbors to return
     // ef_search : exploration width (>= k); larger = better recall, slower
-    std::vector<idx_t> search(const dist_t* query, int k, int ef_search = 0) const {
+    std::vector<idx_t> search(const dist_t* query, int k, int ef_search = 0, QueryTrace* trace = nullptr) const {
         if (ef_search < k) ef_search = k;
         using P = std::pair<dist_t, idx_t>;
+
+        QueryTrace local_trace;
+        QueryTrace& qtrace = trace ? *trace : local_trace;
+        qtrace = QueryTrace{};
 
         // q    : exploration frontier, min-heap — always expand the closest unvisited node
         // topk : best ef_search results so far, max-heap — top = worst result = pruning threshold
@@ -47,35 +52,55 @@ struct Graph {
             q.push({d, ep});
             topk.push({d, ep});
             visited.insert(ep);
+            qtrace.seed_count++;
+            qtrace.visited_nodes++;
+            qtrace.distance_evals++;
+            qtrace.frontier_pushes++;
+            qtrace.result_updates++;
+            qtrace.peak_frontier = std::max(qtrace.peak_frontier, (int)q.size());
+            qtrace.peak_results = std::max(qtrace.peak_results, (int)topk.size());
         }
 
         while (!q.empty()) {
             auto [cd, cu] = q.top(); q.pop(); // cd: distance of current node, cu: its id
-            if ((int)topk.size() == ef_search && cd > topk.top().first) break;
+            qtrace.expanded_nodes++;
+            if ((int)topk.size() == ef_search && cd > topk.top().first) {
+                qtrace.early_stopped = 1;
+                break;
+            }
 
             // Stage 1: Candidate Locating — collect all unvisited neighbors of cu
             std::vector<idx_t> cands;
             cands.reserve(BLOCK_SIZE);
             for (int j = 0; j < BLOCK_SIZE; j++) {
+                qtrace.neighbor_slots_scanned++;
                 idx_t v = adj[cu * BLOCK_SIZE + j];
                 if (v < 0 || visited.count(v)) continue;
                 visited.insert(v);
                 cands.push_back(v);
+                qtrace.visited_nodes++;
+                qtrace.candidate_nodes++;
             }
 
             // Stage 2: Bulk Distance Computation — compute all distances in one pass
             std::vector<dist_t> dists(cands.size()); // dists[i]: distance from query to cands[i]
-            for (int i = 0; i < (int)cands.size(); i++)
+            for (int i = 0; i < (int)cands.size(); i++) {
                 dists[i] = l2(query, data.data() + (size_t)cands[i] * dim, dim);
+                qtrace.distance_evals++;
+            }
 
             // Stage 3: Data Structure Maintenance
             // q is pushed unconditionally — bridge nodes (mediocre themselves, good neighbors)
             // must remain explorable even when they don't improve topk
             for (int i = 0; i < (int)cands.size(); i++) {
                 q.push({dists[i], cands[i]});
+                qtrace.frontier_pushes++;
+                qtrace.peak_frontier = std::max(qtrace.peak_frontier, (int)q.size());
                 if ((int)topk.size() < ef_search || dists[i] < topk.top().first) {
                     topk.push({dists[i], cands[i]});
                     if ((int)topk.size() > ef_search) topk.pop();
+                    qtrace.result_updates++;
+                    qtrace.peak_results = std::max(qtrace.peak_results, (int)topk.size());
                 }
             }
         }
@@ -85,6 +110,7 @@ struct Graph {
         std::vector<idx_t> result;
         result.reserve(k);
         while (!topk.empty()) { result.push_back(topk.top().second); topk.pop(); }
+        qtrace.result_count = (int)result.size();
         return result;
     }
 };

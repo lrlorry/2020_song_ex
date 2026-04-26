@@ -42,3 +42,17 @@ constexpr int hash_bits       = 256;
 
 // HASH_WORDS: hash_bits packed into 32-bit words for __popc-based Hamming distance
 constexpr int HASH_WORDS      = hash_bits / 32;
+
+// Bloom filter parameters for GPU visited-node tracking (replaces dense bool[n] array).
+// Filter lives in shared memory — zero global memory overhead per query.
+//
+// BF_WORDS : filter size in 64-bit words; total bits = BF_WORDS * 64
+// BF_SHIFT : log2(BF_WORDS * 64); hash output is right-shifted to [0, BF_WORDS*64)
+// BF_NHASH : number of independent hash functions; more → lower false-positive rate
+//
+// At pq_size=50, BLOCK_SIZE=32 a search visits ≤1600 nodes.
+// With BF_WORDS=256 (16384 bits) and BF_NHASH=4: false-positive rate ≈ 1%.
+// Matches official SONG BLOOM_FILTER_BIT64 / BIT_SHIFT / NUM_HASH from fill_parameters.sh.
+constexpr int BF_WORDS        = 256;
+constexpr int BF_SHIFT        = 14;   // 2^14 = 16384 = BF_WORDS * 64
+constexpr int BF_NHASH        = 4;
