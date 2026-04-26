@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(g++ -std=c++17 -O2 -o cpu_test main.cpp)",
+      "Bash(./cpu_test)"
+    ]
+  }
+}

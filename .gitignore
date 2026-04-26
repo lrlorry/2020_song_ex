@@ -1,0 +1,23 @@
+# data
+data/
+
+# build artifacts
+build/
+*.o
+*.a
+*.so
+
+# compiled binaries
+song_gpu
+song_cpu
+bench_cpu
+bench_gpu
+cpu_test
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# macOS
+.DS_Store
