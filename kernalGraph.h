@@ -42,6 +42,29 @@ struct KernelGraph {
     ~KernelGraph() { if (d_data) { cudaFree(d_data); cudaFree(d_adj); } }
     KernelGraph(const KernelGraph&)            = delete;
     KernelGraph& operator=(const KernelGraph&) = delete;
+    KernelGraph(KernelGraph&& other) noexcept
+        : num_nodes(other.num_nodes), dim(other.dim), data(std::move(other.data)),
+          adj(std::move(other.adj)), d_data(other.d_data), d_adj(other.d_adj) {
+        other.d_data = nullptr;
+        other.d_adj = nullptr;
+    }
+    KernelGraph& operator=(KernelGraph&& other) noexcept {
+        if (this != &other) {
+            if (d_data) {
+                cudaFree(d_data);
+                cudaFree(d_adj);
+            }
+            num_nodes = other.num_nodes;
+            dim = other.dim;
+            data = std::move(other.data);
+            adj = std::move(other.adj);
+            d_data = other.d_data;
+            d_adj = other.d_adj;
+            other.d_data = nullptr;
+            other.d_adj = nullptr;
+        }
+        return *this;
+    }
 };
 
 // ── NSW build ─────────────────────────────────────────────────────────────────

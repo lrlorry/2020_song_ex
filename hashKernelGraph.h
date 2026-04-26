@@ -97,6 +97,29 @@ struct HashKernelGraph {
     ~HashKernelGraph() { if (d_hashed) { cudaFree(d_hashed); cudaFree(d_adj); } }
     HashKernelGraph(const HashKernelGraph&)            = delete;
     HashKernelGraph& operator=(const HashKernelGraph&) = delete;
+    HashKernelGraph(HashKernelGraph&& other) noexcept
+        : num_nodes(other.num_nodes), bh(std::move(other.bh)), adj(std::move(other.adj)),
+          hashed(std::move(other.hashed)), d_hashed(other.d_hashed), d_adj(other.d_adj) {
+        other.d_hashed = nullptr;
+        other.d_adj = nullptr;
+    }
+    HashKernelGraph& operator=(HashKernelGraph&& other) noexcept {
+        if (this != &other) {
+            if (d_hashed) {
+                cudaFree(d_hashed);
+                cudaFree(d_adj);
+            }
+            num_nodes = other.num_nodes;
+            bh = std::move(other.bh);
+            adj = std::move(other.adj);
+            hashed = std::move(other.hashed);
+            d_hashed = other.d_hashed;
+            d_adj = other.d_adj;
+            other.d_hashed = nullptr;
+            other.d_adj = nullptr;
+        }
+        return *this;
+    }
 };
 
 // ── NSW build ─────────────────────────────────────────────────────────────────
