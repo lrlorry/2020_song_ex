@@ -1207,6 +1207,8 @@ def main():
     ap.add_argument("--batch-size", type=int, default=512)
     ap.add_argument("--out-dir", default=str(ROOT / "results/compare_run"))
     ap.add_argument("--save-prepared-arrays", action="store_true")
+    ap.add_argument("--paper-only", action="store_true",
+                    help="Only run repro_gpu_raw + official_gpu_raw (matches paper Figure 5 comparison).")
     ap.add_argument(
         "--from-metrics",
         default="",
@@ -1301,27 +1303,34 @@ def main():
     (raw_dir / "config_snapshot.json").write_text(json.dumps(config_snapshot, indent=2))
     write_environment_snapshot(raw_dir / "environment.json", official_root)
 
-    print("[2/8] building repro benchmarks...", flush=True)
-    run(["make", "bench_cpu", "bench_gpu"], cwd=ROOT)
+    steps = 4 if args.paper_only else 8
+    print(f"[mode] {'paper-only (repro_gpu_raw + official_gpu_raw)' if args.paper_only else 'full (all 5 methods)'}", flush=True)
 
-    print("[3/8] running repro CPU raw sweep...", flush=True)
-    repro_cpu_json = out_dir / "repro_cpu_raw.json"
-    run([
-        str(ROOT / "bench_cpu"),
-        "--base", str(bench_base_path),
-        "--query", str(bench_query_path),
-        "--n", str(args.n),
-        "--nq", str(args.nq),
-        "--k", str(args.k),
-        "--pq-list", args.pq_list,
-        "--repeats", str(args.repeats),
-        "--gt-npy", str(prepared / "gt.npy"),
-        "--out-dir", str(repro_cpu_dir),
-        "--ids-out", str(out_dir / "repro_cpu_raw.ids"),
-        "--json-out", str(repro_cpu_json),
-    ], cwd=ROOT)
+    print(f"[2/{steps}] building repro benchmarks...", flush=True)
+    if args.paper_only:
+        run(["make", "bench_gpu"], cwd=ROOT)
+    else:
+        run(["make", "bench_cpu", "bench_gpu"], cwd=ROOT)
 
-    print("[4/8] running repro GPU raw/hash sweep...", flush=True)
+    if not args.paper_only:
+        print(f"[3/{steps}] running repro CPU raw sweep...", flush=True)
+        repro_cpu_json = out_dir / "repro_cpu_raw.json"
+        run([
+            str(ROOT / "bench_cpu"),
+            "--base", str(bench_base_path),
+            "--query", str(bench_query_path),
+            "--n", str(args.n),
+            "--nq", str(args.nq),
+            "--k", str(args.k),
+            "--pq-list", args.pq_list,
+            "--repeats", str(args.repeats),
+            "--gt-npy", str(prepared / "gt.npy"),
+            "--out-dir", str(repro_cpu_dir),
+            "--ids-out", str(out_dir / "repro_cpu_raw.ids"),
+            "--json-out", str(repro_cpu_json),
+        ], cwd=ROOT)
+
+    print(f"[{'3' if args.paper_only else '4'}/{steps}] running repro GPU raw/hash sweep...", flush=True)
     repro_gpu_json = out_dir / "repro_gpu.json"
     run([
         str(ROOT / "bench_gpu"),
@@ -1340,29 +1349,36 @@ def main():
         "--json-out", str(repro_gpu_json),
     ], cwd=ROOT)
 
-    print("[5/8] compiling official SONG variants...", flush=True)
-    run(["make", "song.cpu"], cwd=official_root)
+    print(f"[{'4' if args.paper_only else '5'}/{steps}] compiling official SONG GPU...", flush=True)
+    if not args.paper_only:
+        run(["make", "song.cpu"], cwd=official_root)
     run(["bash", str(official_root / "generate_template.sh")], cwd=official_root)
     run(["bash", str(official_root / "fill_parameters.sh"), str(primary_pq), str(args.dim), args.dist], cwd=official_root)
 
-    print("[6/8] building official SONG indices...", flush=True)
+    print(f"[{'5' if args.paper_only else '6'}/{steps}] building official SONG GPU index...", flush=True)
 
-    official_cpu_raw_build = run([
-        str(official_root / "song.cpu"), "build", str(base_libsvm), "0", "0",
-        str(args.n), str(args.dim), "0", args.dist
-    ], cwd=raw_cpu_dir)
+    if not args.paper_only:
+        official_cpu_raw_build = run([
+            str(official_root / "song.cpu"), "build", str(base_libsvm), "0", "0",
+            str(args.n), str(args.dim), "0", args.dist
+        ], cwd=raw_cpu_dir)
 
     official_gpu_raw_build = run([
         str(official_root / "song"), "build", str(base_libsvm), "0", "0",
         str(args.n), str(args.dim), "0", args.dist
     ], cwd=raw_gpu_dir)
 
-    print("[7/8] running official SONG sweeps...", flush=True)
+    print(f"[{'6' if args.paper_only else '7'}/{steps}] running official SONG sweeps...", flush=True)
     gt_ids = gt.astype(np.int32)
     rows = []
-    rows.extend(load_sweep_rows(repro_cpu_dir / "sweep_summary.csv", args.k))
-    rows.extend(load_sweep_rows(repro_gpu_dir / "sweep_summary.csv", args.k))
-    rows.extend(run_official_search_series(official_root / "song.cpu", raw_cpu_dir, query_libsvm, pq_values, args, gt_ids, "official_cpu_raw", official_cpu_raw_build, args.dist))
+    if not args.paper_only:
+        rows.extend(load_sweep_rows(repro_cpu_dir / "sweep_summary.csv", args.k))
+    gpu_rows = load_sweep_rows(repro_gpu_dir / "sweep_summary.csv", args.k)
+    if args.paper_only:
+        gpu_rows = [r for r in gpu_rows if r["method"] == "repro_gpu_raw"]
+    rows.extend(gpu_rows)
+    if not args.paper_only:
+        rows.extend(run_official_search_series(official_root / "song.cpu", raw_cpu_dir, query_libsvm, pq_values, args, gt_ids, "official_cpu_raw", official_cpu_raw_build, args.dist))
     rows.extend(run_official_search_series(official_root / "song", raw_gpu_dir, query_libsvm, pq_values, args, gt_ids, "official_gpu_raw", official_gpu_raw_build, args.dist))
 
     print("[8/8] evaluating and plotting...", flush=True)
