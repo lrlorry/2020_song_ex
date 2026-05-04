@@ -31,13 +31,13 @@ DATASET_PRESETS = {
         "fmt":    "fvecs",
     },
     "gist": {
-        "base":   "data/gist/gist_base.fvecs",
-        "query":  "data/gist/gist_query.fvecs",
+        "base":   "data/gist/gist-960-euclidean.hdf5",
+        "query":  "data/gist/gist-960-euclidean.hdf5",
         "dim":    960,
         "n":      1_000_000,
         "dist":   "l2",
         "download": "download_gist.sh",
-        "fmt":    "fvecs",
+        "fmt":    "hdf5",
     },
     "nytimes": {
         "base":   "data/nytimes/nytimes-256-angular.hdf5",
