@@ -13,6 +13,52 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
+try:
+    import h5py
+    _HAS_H5PY = True
+except ImportError:
+    _HAS_H5PY = False
+
+# Dataset presets: name -> (base_path, query_path, dim, n, dist, download_script)
+DATASET_PRESETS = {
+    "sift": {
+        "base":   "data/sift/sift_base.fvecs",
+        "query":  "data/sift/sift_query.fvecs",
+        "dim":    128,
+        "n":      1_000_000,
+        "dist":   "l2",
+        "download": "download_sift.sh",
+        "fmt":    "fvecs",
+    },
+    "gist": {
+        "base":   "data/gist/gist_base.fvecs",
+        "query":  "data/gist/gist_query.fvecs",
+        "dim":    960,
+        "n":      1_000_000,
+        "dist":   "l2",
+        "download": "download_gist.sh",
+        "fmt":    "fvecs",
+    },
+    "nytimes": {
+        "base":   "data/nytimes/nytimes-256-angular.hdf5",
+        "query":  "data/nytimes/nytimes-256-angular.hdf5",
+        "dim":    256,
+        "n":      290_000,
+        "dist":   "cos",
+        "download": "download_nytimes.sh",
+        "fmt":    "hdf5",
+    },
+    "glove200": {
+        "base":   "data/glove200/glove-200-angular.hdf5",
+        "query":  "data/glove200/glove-200-angular.hdf5",
+        "dim":    200,
+        "n":      1_183_514,
+        "dist":   "cos",
+        "download": "download_glove200.sh",
+        "fmt":    "hdf5",
+    },
+}
+
 ROOT = Path(__file__).resolve().parent
 DEFAULT_OFFICIAL = ROOT.parent / "song"
 
@@ -116,6 +162,38 @@ def read_fvecs_subset(path: Path, limit: int):
     if not vecs:
         raise RuntimeError(f"empty fvecs: {path}")
     return np.stack(vecs, axis=0)
+
+
+def read_hdf5_base(path: Path, limit: int) -> np.ndarray:
+    if not _HAS_H5PY:
+        raise RuntimeError("h5py not installed; run: pip install h5py")
+    with h5py.File(path, "r") as f:
+        arr = f["train"][:limit].astype(np.float32)
+    return arr
+
+
+def read_hdf5_query(path: Path, limit: int) -> np.ndarray:
+    if not _HAS_H5PY:
+        raise RuntimeError("h5py not installed; run: pip install h5py")
+    with h5py.File(path, "r") as f:
+        arr = f["test"][:limit].astype(np.float32)
+    return arr
+
+
+def normalize_l2(arr: np.ndarray) -> np.ndarray:
+    norms = np.linalg.norm(arr, axis=1, keepdims=True)
+    norms = np.where(norms == 0, 1.0, norms)
+    return (arr / norms).astype(np.float32)
+
+
+def write_fvecs(path: Path, arr: np.ndarray):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    arr = np.asarray(arr, dtype=np.float32)
+    n, dim = arr.shape
+    with path.open("wb") as f:
+        for i in range(n):
+            f.write(struct.pack("<i", dim))
+            f.write(arr[i].tobytes())
 
 
 def compute_gt(base: np.ndarray, query: np.ndarray, k: int, block: int = 64):
@@ -1001,7 +1079,7 @@ def write_sweep_report(path: Path, rows, primary_pq: int, args):
             f.write(f"| {method_label(row['method'])} | {row['build_ms']:.2f} | {row['search_ms']:.2f} | {row['qps']:.2f} | {row['recall']:.4f} |\n")
 
 
-def run_official_search_series(binary_path: Path, run_dir: Path, query_libsvm: Path, pq_values, args, gt_ids, method_name: str, build_ms: float):
+def run_official_search_series(binary_path: Path, run_dir: Path, query_libsvm: Path, pq_values, args, gt_ids, method_name: str, build_ms: float, dist: str = "l2"):
     rows = []
     for pq in pq_values:
         ids_path = run_dir / f"{method_name}_{pq_tag(pq)}.ids"
@@ -1009,7 +1087,7 @@ def run_official_search_series(binary_path: Path, run_dir: Path, query_libsvm: P
         search_times = []
         first_search_ms = run([
             str(binary_path), "test", "0", str(query_libsvm), str(pq),
-            str(args.n), str(args.dim), str(args.k), "l2"
+            str(args.n), str(args.dim), str(args.k), dist
         ], cwd=run_dir, stdout_path=ids_path, stderr_path=stderr_path)
         search_times.append(first_search_ms)
         for rep in range(1, args.repeats):
@@ -1017,7 +1095,7 @@ def run_official_search_series(binary_path: Path, run_dir: Path, query_libsvm: P
             rep_stderr = run_dir / f"{method_name}_{pq_tag(pq)}_repeat{rep + 1}.stderr.log"
             rep_ms = run([
                 str(binary_path), "test", "0", str(query_libsvm), str(pq),
-                str(args.n), str(args.dim), str(args.k), "l2"
+                str(args.n), str(args.dim), str(args.k), dist
             ], cwd=run_dir, stdout_path=discard, stderr_path=rep_stderr)
             search_times.append(rep_ms)
 
@@ -1113,14 +1191,18 @@ def generate_outputs(rows, args, out_dir: Path, figs: Path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--official-root", default=str(DEFAULT_OFFICIAL))
-    ap.add_argument("--base", default=str(ROOT / "data/sift/sift_base.fvecs"))
-    ap.add_argument("--query", default=str(ROOT / "data/sift/sift_query.fvecs"))
-    ap.add_argument("--n", type=int, default=1000000)
+    ap.add_argument("--dataset", default="", choices=list(DATASET_PRESETS.keys()) + [""],
+                    help="Dataset preset; overrides --base/--query/--dim/--n/--dist defaults.")
+    ap.add_argument("--base", default="")
+    ap.add_argument("--query", default="")
+    ap.add_argument("--n", type=int, default=0)
     ap.add_argument("--nq", type=int, default=1000)
     ap.add_argument("--k", type=int, default=10)
     ap.add_argument("--pq-size", type=int, default=50)
     ap.add_argument("--pq-list", default="10,20,30,40,50")
-    ap.add_argument("--dim", type=int, default=128)
+    ap.add_argument("--dim", type=int, default=0)
+    ap.add_argument("--dist", default="", choices=["l2", "cos", "ip", ""],
+                    help="Distance metric: l2 | cos | ip. Inferred from --dataset if omitted.")
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--batch-size", type=int, default=512)
     ap.add_argument("--out-dir", default=str(ROOT / "results/compare_run"))
@@ -1131,6 +1213,21 @@ def main():
         help="Regenerate report tables/figures from an existing metrics.csv without rerunning benchmarks.",
     )
     args = ap.parse_args()
+
+    # Apply dataset preset (fills in missing values only)
+    preset = DATASET_PRESETS.get(args.dataset, {})
+    if not args.base:
+        args.base = str(ROOT / preset.get("base", "data/sift/sift_base.fvecs"))
+    if not args.query:
+        args.query = str(ROOT / preset.get("query", "data/sift/sift_query.fvecs"))
+    if args.dim == 0:
+        args.dim = preset.get("dim", 128)
+    if args.n == 0:
+        args.n = preset.get("n", 1_000_000)
+    if not args.dist:
+        args.dist = preset.get("dist", "l2")
+    dataset_fmt = preset.get("fmt", "fvecs")
+    dataset_name = args.dataset or "sift"
 
     official_root = Path(args.official_root).resolve()
     out_dir = Path(args.out_dir).resolve()
@@ -1160,18 +1257,38 @@ def main():
     primary_pq = max(pq_values)
     args.pq_size = primary_pq
     if not base_path.exists() or not query_path.exists():
-        run(["bash", str(ROOT / "download_sift.sh")], cwd=ROOT)
+        dl = preset.get("download", "download_sift.sh")
+        run(["bash", str(ROOT / dl)], cwd=ROOT)
 
     print("[1/8] preparing subset and GT...", flush=True)
-    base = read_fvecs_subset(base_path, args.n)
-    query = read_fvecs_subset(query_path, args.nq)
+    if dataset_fmt == "hdf5":
+        base = read_hdf5_base(base_path, args.n)
+        query = read_hdf5_query(query_path, args.nq)
+    else:
+        base = read_fvecs_subset(base_path, args.n)
+        query = read_fvecs_subset(query_path, args.nq)
+
+    # Normalize for cosine: L2 distance on unit sphere is equivalent ranking to cosine similarity
+    if args.dist == "cos":
+        base = normalize_l2(base)
+        query = normalize_l2(query)
+
+    # bench binaries only read fvecs; write prepared arrays so all paths are fvecs
+    bench_base_path = prepared / f"{dataset_name}_base_{args.n}.fvecs"
+    bench_query_path = prepared / f"{dataset_name}_query_{args.nq}.fvecs"
+    if dataset_fmt == "hdf5" or args.dist == "cos":
+        write_fvecs(bench_base_path, base)
+        write_fvecs(bench_query_path, query)
+    else:
+        bench_base_path = base_path
+        bench_query_path = query_path
     gt = compute_gt(base, query, args.k)
     np.save(prepared / "gt.npy", gt)
     if args.save_prepared_arrays:
         np.save(prepared / "base.npy", base)
         np.save(prepared / "query.npy", query)
-    base_libsvm = prepared / f"sift_base_{args.n}.libsvm"
-    query_libsvm = prepared / f"sift_query_{args.nq}.libsvm"
+    base_libsvm = prepared / f"{dataset_name}_base_{args.n}.libsvm"
+    query_libsvm = prepared / f"{dataset_name}_query_{args.nq}.libsvm"
     write_libsvm(base_libsvm, base)
     write_libsvm(query_libsvm, query)
     config_snapshot = parse_config_snapshot(ROOT / "config.h")
@@ -1191,8 +1308,8 @@ def main():
     repro_cpu_json = out_dir / "repro_cpu_raw.json"
     run([
         str(ROOT / "bench_cpu"),
-        "--base", str(base_path),
-        "--query", str(query_path),
+        "--base", str(bench_base_path),
+        "--query", str(bench_query_path),
         "--n", str(args.n),
         "--nq", str(args.nq),
         "--k", str(args.k),
@@ -1208,8 +1325,8 @@ def main():
     repro_gpu_json = out_dir / "repro_gpu.json"
     run([
         str(ROOT / "bench_gpu"),
-        "--base", str(base_path),
-        "--query", str(query_path),
+        "--base", str(bench_base_path),
+        "--query", str(bench_query_path),
         "--n", str(args.n),
         "--nq", str(args.nq),
         "--k", str(args.k),
@@ -1226,18 +1343,18 @@ def main():
     print("[5/8] compiling official SONG variants...", flush=True)
     run(["make", "song.cpu"], cwd=official_root)
     run(["bash", str(official_root / "generate_template.sh")], cwd=official_root)
-    run(["bash", str(official_root / "fill_parameters.sh"), str(primary_pq), str(args.dim), "l2"], cwd=official_root)
+    run(["bash", str(official_root / "fill_parameters.sh"), str(primary_pq), str(args.dim), args.dist], cwd=official_root)
 
     print("[6/8] building official SONG indices...", flush=True)
 
     official_cpu_raw_build = run([
         str(official_root / "song.cpu"), "build", str(base_libsvm), "0", "0",
-        str(args.n), str(args.dim), "0", "l2"
+        str(args.n), str(args.dim), "0", args.dist
     ], cwd=raw_cpu_dir)
 
     official_gpu_raw_build = run([
         str(official_root / "song"), "build", str(base_libsvm), "0", "0",
-        str(args.n), str(args.dim), "0", "l2"
+        str(args.n), str(args.dim), "0", args.dist
     ], cwd=raw_gpu_dir)
 
     print("[7/8] running official SONG sweeps...", flush=True)
@@ -1245,8 +1362,8 @@ def main():
     rows = []
     rows.extend(load_sweep_rows(repro_cpu_dir / "sweep_summary.csv", args.k))
     rows.extend(load_sweep_rows(repro_gpu_dir / "sweep_summary.csv", args.k))
-    rows.extend(run_official_search_series(official_root / "song.cpu", raw_cpu_dir, query_libsvm, pq_values, args, gt_ids, "official_cpu_raw", official_cpu_raw_build))
-    rows.extend(run_official_search_series(official_root / "song", raw_gpu_dir, query_libsvm, pq_values, args, gt_ids, "official_gpu_raw", official_gpu_raw_build))
+    rows.extend(run_official_search_series(official_root / "song.cpu", raw_cpu_dir, query_libsvm, pq_values, args, gt_ids, "official_cpu_raw", official_cpu_raw_build, args.dist))
+    rows.extend(run_official_search_series(official_root / "song", raw_gpu_dir, query_libsvm, pq_values, args, gt_ids, "official_gpu_raw", official_gpu_raw_build, args.dist))
 
     print("[8/8] evaluating and plotting...", flush=True)
     write_long_metrics_csv(out_dir / "metrics_long.csv", rows)

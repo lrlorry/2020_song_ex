@@ -5,7 +5,17 @@
       "Bash(./cpu_test)",
       "Bash(gh api *)",
       "Bash(python3 -c \"import json,sys; [print\\(f['name']\\) for f in json.load\\(sys.stdin\\)]\")",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(python3 -c \"import matplotlib; import numpy; print\\('ok'\\)\")",
+      "Bash(python3 -c \"import reportlab; print\\('ok'\\)\")",
+      "Bash(python3 -c \"import fpdf; print\\('fpdf'\\)\")",
+      "Bash(pip3 install *)",
+      "Bash(python3 generate_report.py)",
+      "Bash(sed -i '' 's/h1\\(\"1\\\\.  Paper Contribution/h1\\(\"2.  Paper Contribution/' generate_report.py)",
+      "Bash(sed -i '' 's/h2\\(\"1\\\\.1  Why GPU/h2\\(\"2.1  Why GPU/' generate_report.py)",
+      "Bash(sed -i '' 's/h2\\(\"1\\\\.2  SONG/h2\\(\"2.2  SONG/' generate_report.py)",
+      "Bash(sed -i '' 's/h2\\(\"1\\\\.3  Two/h2\\(\"2.3  Two/' generate_report.py)",
+      "Bash(sed -i '' 's/h1\\(\"2\\\\.  Single/h1\\(\"3.  Single/' generate_report.py)"
     ]
   }
 }

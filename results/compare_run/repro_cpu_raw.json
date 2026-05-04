@@ -1,0 +1,72 @@
+{
+  "method": "repro_cpu_raw",
+  "n": 1000000,
+  "nq": 1000,
+  "dim": 128,
+  "k": 10,
+  "repeats": 3,
+  "base_load_ms": 294.27,
+  "query_load_ms": 2.71597,
+  "flatten_ms": 224.673,
+  "gt_ms": 0.140262,
+  "build_ms": 775734,
+  "primary_pq": 50,
+  "search_ms": 312.084,
+  "qps": 3204.71,
+  "recall_at_k": 0.8848,
+  "degree_stats": {
+    "min_degree": 15,
+    "max_degree": 31,
+    "zero_degree_nodes": 0,
+    "mean_degree": 23.4395,
+    "std_degree": 6.04906
+  },
+  "summary_csv": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/sweep_summary.csv",
+  "pq_runs": [
+    {
+      "pq": 10,
+      "search_ms_mean": 110.221,
+      "search_ms_std": 1.58458,
+      "qps_mean": 9074.53,
+      "recall_at_k": 0.6281,
+      "ids_path": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/pq0010.ids",
+      "query_stats_path": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/pq0010_query_stats.csv"
+    },
+    {
+      "pq": 20,
+      "search_ms_mean": 162.267,
+      "search_ms_std": 1.66076,
+      "qps_mean": 6163.34,
+      "recall_at_k": 0.7516,
+      "ids_path": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/pq0020.ids",
+      "query_stats_path": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/pq0020_query_stats.csv"
+    },
+    {
+      "pq": 30,
+      "search_ms_mean": 214.512,
+      "search_ms_std": 0.951661,
+      "qps_mean": 4661.83,
+      "recall_at_k": 0.8142,
+      "ids_path": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/pq0030.ids",
+      "query_stats_path": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/pq0030_query_stats.csv"
+    },
+    {
+      "pq": 40,
+      "search_ms_mean": 259.297,
+      "search_ms_std": 0.965075,
+      "qps_mean": 3856.63,
+      "recall_at_k": 0.8554,
+      "ids_path": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/pq0040.ids",
+      "query_stats_path": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/pq0040_query_stats.csv"
+    },
+    {
+      "pq": 50,
+      "search_ms_mean": 312.084,
+      "search_ms_std": 3.66655,
+      "qps_mean": 3204.71,
+      "recall_at_k": 0.8848,
+      "ids_path": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/pq0050.ids",
+      "query_stats_path": "/root/2020_song_ex/results/compare_run/runs/repro_cpu_raw/pq0050_query_stats.csv"
+    }
+  ]
+}

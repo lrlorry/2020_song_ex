@@ -1,0 +1,13 @@
+{
+  "BLOCK_SIZE": 32,
+  "FIXED_DEGREE": 31,
+  "SEARCH_DEGREE": 15,
+  "EF_CONSTRUCTION": 150,
+  "pq_size": 50,
+  "TOPK": 10,
+  "N_MULTIPROBE": 4,
+  "N_MULTIQUERY": 512,
+  "hash_bits": 256,
+  "BF_WORDS": 256,
+  "BF_NHASH": 4
+}

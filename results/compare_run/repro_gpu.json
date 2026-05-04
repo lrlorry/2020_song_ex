@@ -1,0 +1,21 @@
+{
+  "n": 1000000,
+  "nq": 1000,
+  "dim": 128,
+  "k": 10,
+  "repeats": 3,
+  "batch_size": 512,
+  "base_load_ms": 309.255,
+  "query_load_ms": 2.65515,
+  "flatten_ms": 232.889,
+  "raw_build_ms": 785934,
+  "raw_upload_ms": 228.641,
+  "hash_build_ms": 501106,
+  "hash_projection_ms": 10.6552,
+  "hash_upload_ms": 24.917,
+  "raw_search_ms": 8.8703,
+  "raw_qps": 112736,
+  "hash_search_ms": 10.8715,
+  "hash_qps": 92023.7,
+  "summary_csv": "/root/2020_song_ex/results/compare_run/runs/repro_gpu/sweep_summary.csv"
+}

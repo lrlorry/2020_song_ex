@@ -1,0 +1,50 @@
+{
+  "subset": {
+    "n": 1000000,
+    "nq": 1000,
+    "dim": 128,
+    "k": 10,
+    "pq_size": 50
+  },
+  "official_root": "/root/song",
+  "artifacts": {
+    "metrics_csv": "/root/2020_song_ex/results/compare_run/metrics.csv",
+    "leaderboard_csv": "/root/2020_song_ex/results/compare_run/leaderboard.csv",
+    "vs_official_gpu_csv": "/root/2020_song_ex/results/compare_run/vs_official_gpu.csv",
+    "report_md": "/root/2020_song_ex/results/compare_run/report.md",
+    "presentation_notes_md": "/root/2020_song_ex/results/compare_run/presentation_notes.md",
+    "dashboard_png": "/root/2020_song_ex/results/compare_run/figures/dashboard.png",
+    "tradeoff_png": "/root/2020_song_ex/results/compare_run/figures/recall_vs_qps.png",
+    "build_detail_png": "/root/2020_song_ex/results/compare_run/figures/build_ms_detail.png",
+    "query_detail_png": "/root/2020_song_ex/results/compare_run/figures/search_ms_detail.png",
+    "qps_detail_png": "/root/2020_song_ex/results/compare_run/figures/qps_detail.png",
+    "recall_detail_png": "/root/2020_song_ex/results/compare_run/figures/recall_detail.png",
+    "rank_heatmap_png": "/root/2020_song_ex/results/compare_run/figures/rank_heatmap.png",
+    "baseline_compare_png": "/root/2020_song_ex/results/compare_run/figures/vs_official_gpu_raw.png",
+    "latency_recall_png": "/root/2020_song_ex/results/compare_run/figures/latency_vs_recall.png",
+    "metrics_long_csv": "/root/2020_song_ex/results/compare_run/metrics_long.csv",
+    "sweep_report_md": "/root/2020_song_ex/results/compare_run/sweep_report.md",
+    "environment_json": "/root/2020_song_ex/results/compare_run/raw/environment.json",
+    "config_snapshot_json": "/root/2020_song_ex/results/compare_run/raw/config_snapshot.json",
+    "recall_vs_pq_png": "/root/2020_song_ex/results/compare_run/figures/recall_vs_pq.png",
+    "qps_vs_pq_png": "/root/2020_song_ex/results/compare_run/figures/qps_vs_pq.png",
+    "search_ms_vs_pq_png": "/root/2020_song_ex/results/compare_run/figures/search_ms_vs_pq.png",
+    "recall_vs_qps_curve_png": "/root/2020_song_ex/results/compare_run/figures/recall_vs_qps_curve.png",
+    "recall_gap_vs_official_gpu_pq_png": "/root/2020_song_ex/results/compare_run/figures/recall_gap_vs_official_gpu_pq.png",
+    "search_work_vs_pq_png": "/root/2020_song_ex/results/compare_run/figures/search_work_vs_pq.png",
+    "overall_stage_breakdown_png": "/root/2020_song_ex/results/compare_run/figures/overall_stage_breakdown.png",
+    "gpu_internal_breakdown_png": "/root/2020_song_ex/results/compare_run/figures/gpu_internal_breakdown.png"
+  },
+  "sweep": {
+    "pq_values": [
+      10,
+      20,
+      30,
+      40,
+      50
+    ],
+    "primary_pq": 50
+  },
+  "environment_snapshot": "/root/2020_song_ex/results/compare_run/raw/environment.json",
+  "config_snapshot": "/root/2020_song_ex/results/compare_run/raw/config_snapshot.json"
+}

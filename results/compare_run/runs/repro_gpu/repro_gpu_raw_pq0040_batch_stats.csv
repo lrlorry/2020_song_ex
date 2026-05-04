@@ -1,0 +1,3 @@
+pq,batch_index,batch_offset,batch_size,h2d_ms,memset_ms,kernel_ms,d2h_ms,total_ms,per_query_total_ms
+40,0,0,512,0.019035,0,3.49299,0.009789,3.52181,0.00687854
+40,1,512,488,0.013937,0,3.07717,0.008455,3.09956,0.00635156

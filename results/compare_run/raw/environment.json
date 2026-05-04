@@ -1,0 +1,89 @@
+{
+  "generated_at_epoch": 1777241054.8165932,
+  "cwd": "/root/2020_song_ex",
+  "root": "/root/2020_song_ex",
+  "official_root": "/root/song",
+  "python_version": {
+    "cmd": [
+      "python3",
+      "--version"
+    ],
+    "returncode": 0,
+    "stdout": "Python 3.10.8\n",
+    "stderr": ""
+  },
+  "nvcc_version": {
+    "cmd": [
+      "nvcc",
+      "--version"
+    ],
+    "returncode": 0,
+    "stdout": "nvcc: NVIDIA (R) Cuda compiler driver\nCopyright (c) 2005-2022 NVIDIA Corporation\nBuilt on Wed_Sep_21_10:33:58_PDT_2022\nCuda compilation tools, release 11.8, V11.8.89\nBuild cuda_11.8.r11.8/compiler.31833905_0\n",
+    "stderr": ""
+  },
+  "nvidia_smi": {
+    "cmd": [
+      "nvidia-smi"
+    ],
+    "returncode": 0,
+    "stdout": "Mon Apr 27 06:04:14 2026       \n+-----------------------------------------------------------------------------------------+\n| NVIDIA-SMI 580.76.05              Driver Version: 580.76.05      CUDA Version: 13.0     |\n+-----------------------------------------+------------------------+----------------------+\n| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |\n| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |\n|                                         |                        |               MIG M. |\n|=========================================+========================+======================|\n|   0  NVIDIA GeForce RTX 5090        On  |   00000000:AB:00.0 Off |                  N/A |\n| 41%   37C    P0            106W /  575W |       0MiB /  32607MiB |    100%      Default |\n|                                         |                        |                  N/A |\n+-----------------------------------------+------------------------+----------------------+\n\n+-----------------------------------------------------------------------------------------+\n| Processes:                                                                              |\n|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |\n|        ID   ID                                                               Usage      |\n|=========================================================================================|\n|  No running processes found                                                             |\n+-----------------------------------------------------------------------------------------+\n",
+    "stderr": ""
+  },
+  "uname": {
+    "cmd": [
+      "uname",
+      "-a"
+    ],
+    "returncode": 0,
+    "stdout": "Linux autodl-container-14574f97ce-778afe94 5.15.0-119-generic #129-Ubuntu SMP Fri Aug 2 19:25:20 UTC 2024 x86_64 x86_64 x86_64 GNU/Linux\n",
+    "stderr": ""
+  },
+  "repo_git_head": {
+    "cmd": [
+      "git",
+      "-C",
+      "/root/2020_song_ex",
+      "rev-parse",
+      "HEAD"
+    ],
+    "returncode": 0,
+    "stdout": "b2cda9eabab35eae987241f8735e216b28aa3f15\n",
+    "stderr": ""
+  },
+  "repo_git_status": {
+    "cmd": [
+      "git",
+      "-C",
+      "/root/2020_song_ex",
+      "status",
+      "--short"
+    ],
+    "returncode": 0,
+    "stdout": "?? compare.log\n?? logs/\n?? results/\n",
+    "stderr": ""
+  },
+  "official_git_head": {
+    "cmd": [
+      "git",
+      "-C",
+      "/root/song",
+      "rev-parse",
+      "HEAD"
+    ],
+    "returncode": 0,
+    "stdout": "9cb1f486fd72828128d65bc2b107d2c5c6799bf0\n",
+    "stderr": ""
+  },
+  "official_git_status": {
+    "cmd": [
+      "git",
+      "-C",
+      "/root/song",
+      "status",
+      "--short"
+    ],
+    "returncode": 0,
+    "stdout": "?? auto_tune_bloom\n?? build_template/\n?? song\n?? song.cpu\n",
+    "stderr": ""
+  }
+}
